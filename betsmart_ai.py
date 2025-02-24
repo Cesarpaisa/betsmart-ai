@@ -1,6 +1,5 @@
 import requests
 import pandas as pd
-import numpy as np
 import streamlit as st
 import pytz
 from datetime import datetime
@@ -52,7 +51,6 @@ def convertir_hora(hora_utc, zona_usuario='America/Bogota'):
 
 # Interfaz en Streamlit
 st.title("⚽ BetSmart AI - Predicción de Apuestas Deportivas")
-st.sidebar.header("📅 Configuración")
 
 # Obtener partidos
 partidos = obtener_partidos()
@@ -101,17 +99,12 @@ else:
         mejor_apuesta = df_cuotas.loc[df_cuotas['Valor Esperado'].idxmax()]
 
         # Mostrar el pronóstico recomendado
-        st.markdown(f"**🔮 Pronóstico Recomendado:** {mejor_apuesta['market']} - Cuota: {mejor_apuesta['odd']} - Valor Esperado: {mejor_apuesta['Valor Esperado']:.2f}%")
-        st.markdown(f"<span style='color:{definir_color(mejor_apuesta['Valor Esperado'])}'>⚠️ Riesgo: {'Bajo' if definir_color(mejor_apuesta['Valor Esperado'])=='🟢 Bajo' else 'Moderado' if definir_color(mejor_apuesta['Valor Esperado'])=='🟡 Moderado' else 'Alto'}</span>", unsafe_allow_html=True)
+        st.markdown(f"### 🔮 **Pronóstico Recomendado**")
+        st.markdown(f"📌 **Tipo de Apuesta:** {mejor_apuesta['market']}")  
+        st.markdown(f"💵 **Cuota:** {mejor_apuesta['odd']}")  
+        st.markdown(f"📈 **Valor Esperado:** {mejor_apuesta['Valor Esperado']:.2f}%")  
+        st.markdown(f"⚠️ **Riesgo:** {definir_color(mejor_apuesta['Valor Esperado'])}")  
 
         # Mostrar tabla con cuotas filtrables
         st.write("📊 **Cuotas disponibles:**")
         st.dataframe(df_cuotas[['bookmaker', 'market', 'odd', 'Valor Esperado', 'Riesgo']])
-
-# Simulador de Bankroll
-st.sidebar.subheader("💰 Calculadora de Bankroll")
-capital_inicial = st.sidebar.number_input("Capital Inicial ($):", value=1000)
-ganancias = st.sidebar.number_input("Ganancias Totales ($):", value=0)
-perdidas = st.sidebar.number_input("Pérdidas Totales ($):", value=0)
-capital_final = capital_inicial + ganancias - perdidas
-st.sidebar.write(f"**📈 Estado Financiero: ${capital_final}**")
