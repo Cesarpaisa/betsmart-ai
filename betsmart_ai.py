@@ -70,25 +70,23 @@ else:
         
         # Verificar si la API devolvió cuotas
         if not cuotas:
-            st.error("⚠️ No se encontraron cuotas para este partido.")
-            continue  # Pasar al siguiente partido sin detener la ejecución
-
-        # Filtrar solo las cuotas que contienen la clave 'odd'
-        cuotas_filtradas = [c for c in cuotas if 'odd' in c]
-
-        # Verificar que haya cuotas válidas
-        if not cuotas_filtradas:
-            st.error("⚠️ No se encontraron cuotas válidas con 'odd'.")
-            st.write("📌 Datos de cuotas recibidos:", cuotas)
+            st.warning("⚠️ No se encontraron cuotas para este partido.")
             continue  # Pasar al siguiente partido sin detener la ejecución
 
         # Crear DataFrame con cuotas organizadas por tipo
-        df_cuotas = pd.DataFrame(cuotas_filtradas)
+        df_cuotas = pd.DataFrame(cuotas)
 
         # Verificar si el DataFrame tiene datos
         if df_cuotas.empty:
-            st.error("⚠️ No se encontraron cuotas organizadas.")
+            st.warning("⚠️ No se encontraron cuotas organizadas.")
             continue
+
+        # Si hay datos pero no contienen 'odd', mostrar la tabla de todas formas
+        if 'odd' not in df_cuotas.columns:
+            st.warning("⚠️ No se encontraron cuotas válidas con 'odd'.")
+            st.write("📌 **Datos de cuotas recibidos:**")
+            st.dataframe(df_cuotas)  # Mostrar la tabla aunque falte 'odd'
+            continue  # Pasar al siguiente partido
 
         # Agregar cálculo de valor esperado a la tabla
         df_cuotas['Valor Esperado'] = df_cuotas['odd'].apply(lambda x: calcular_valor_esperado(0.60, x))
