@@ -54,7 +54,24 @@ else:
         
         cuotas = obtener_cuotas(partido['fixture']['id'])
         if cuotas:
-            mejor_cuota = max(cuotas, key=lambda x: x['odd'])
+            # Verificar si la API devolvió cuotas
+if not cuotas:
+    st.error("⚠️ No se encontraron cuotas para este partido.")
+    st.stop()  # Detiene la ejecución del programa
+
+# Verificar si 'odd' está presente en los datos
+if isinstance(cuotas, list) and len(cuotas) > 0:
+    if 'odd' not in cuotas[0]:
+        st.error("⚠️ Error: La clave 'odd' no está en los datos de cuotas.")
+        st.write("📌 Datos devueltos por la API:", cuotas)  # Mostrar los datos para ver qué trae la API
+        st.stop()
+else:
+    st.error("⚠️ No se recibieron datos de cuotas en el formato esperado.")
+    st.stop()
+
+# Obtener la mejor cuota si los datos son válidos
+mejor_cuota = max(c
+
             valor_esperado = calcular_valor_esperado(0.60, float(mejor_cuota['odd']))
             color = "green" if valor_esperado > 5 else "yellow" if valor_esperado > 0 else "red"
             st.markdown(f"**📊 Cuota: {mejor_cuota['odd']} - Valor Esperado: {valor_esperado:.2f}%**", unsafe_allow_html=True)
