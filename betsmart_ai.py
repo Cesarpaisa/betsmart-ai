@@ -70,8 +70,8 @@ else:
     st.stop()
 
 # Obtener la mejor cuota si los datos son válidos
-mejor_cuota = max(c
-
+# Obtener la mejor cuota si los datos son válidos
+mejor_cuota = max(cuotas, key=lambda x: x['odd'])
             valor_esperado = calcular_valor_esperado(0.60, float(mejor_cuota['odd']))
             color = "green" if valor_esperado > 5 else "yellow" if valor_esperado > 0 else "red"
             st.markdown(f"**📊 Cuota: {mejor_cuota['odd']} - Valor Esperado: {valor_esperado:.2f}%**", unsafe_allow_html=True)
