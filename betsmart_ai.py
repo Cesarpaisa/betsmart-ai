@@ -9,6 +9,14 @@ API_KEY = "49b84126cfmshd16c7cb8e40fca8p1244edjsn78a3b1832e7b"
 API_URL = "https://api-football-v1.p.rapidapi.com/v3/"
 HEADERS = {"x-rapidapi-key": API_KEY, "x-rapidapi-host": "api-football-v1.p.rapidapi.com"}
 
+# Traducción de los mercados de apuestas al español
+TRADUCCION_MERCADOS = {
+    "Match Winner": "Ganador del Partido",
+    "Over/Under Goals": "Más/Menos Goles",
+    "Both Teams to Score": "Ambos Equipos Marcan",
+    "Handicap": "Hándicap",
+}
+
 # Obtener partidos del día
 def obtener_partidos():
     url = API_URL + "fixtures"
@@ -33,12 +41,7 @@ def obtener_cuotas(partido_id):
         return []
 
     data = response.json()
-    
-    # Verificar si la estructura esperada está en la respuesta
-    if 'response' not in data or not data['response']:
-        return []
-
-    return data['response']
+    return data.get('response', [])
 
 # Calcular valor esperado de una apuesta
 def calcular_valor_esperado(probabilidad_real, cuota):
@@ -60,21 +63,24 @@ st.title("⚽ BetSmart AI - Predicción de Apuestas Deportivas")
 # Obtener partidos
 partidos = obtener_partidos()
 
+# Diccionario para almacenar tablas de mercados
+tablas_mercados = {}
+
 if not partidos:
     st.write("No hay partidos disponibles hoy.")
 else:
     for partido in partidos:
         equipo_local = partido['teams']['home']['name']
         equipo_visitante = partido['teams']['away']['name']
+        liga = partido['league']['name']
         hora_partido = convertir_hora(partido['fixture']['date'])
-        st.subheader(f"{equipo_local} vs {equipo_visitante} - 🕒 {hora_partido}")
-
+        
         cuotas = obtener_cuotas(partido['fixture']['id'])
 
         # Verificar si la API devolvió cuotas
         if not cuotas:
-            st.warning("⚠️ No se encontraron cuotas para este partido.")
-            continue  # Pasar al siguiente partido sin detener la ejecución
+            st.warning(f"⚠️ No se encontraron cuotas para {equipo_local} vs {equipo_visitante}.")
+            continue
 
         # Extraer solo las cuotas relevantes
         cuotas_filtradas = []
@@ -82,16 +88,24 @@ else:
             if 'bookmakers' in cuota_data:
                 for bookmaker in cuota_data['bookmakers']:
                     for bet in bookmaker.get('bets', []):
+                        mercado = bet['name']
+                        mercado_esp = TRADUCCION_MERCADOS.get(mercado, mercado)  # Traducción al español
+
                         for value in bet.get('values', []):
                             if 'odd' in value:
                                 cuotas_filtradas.append({
-                                    "Casa": bookmaker['name'],
-                                    "Mercado": bet['name'],
+                                    "Liga": liga,
+                                    "Equipo Local": equipo_local,
+                                    "Equipo Visitante": equipo_visitante,
+                                    "Hora Local": hora_partido,
+                                    "Casa de Apuestas": bookmaker['name'],
+                                    "Mercado": mercado_esp,
+                                    "Apuesta Recomendada": value['value'],  # Nombre de la apuesta específica
                                     "Cuota": float(value['odd'])
                                 })
 
         if not cuotas_filtradas:
-            st.warning("⚠️ No hay cuotas con 'odd' disponibles para este partido.")
+            st.warning(f"⚠️ No hay cuotas válidas para {equipo_local} vs {equipo_visitante}.")
             continue
 
         # Crear DataFrame con cuotas organizadas
@@ -113,20 +127,15 @@ else:
 
         df_cuotas['Riesgo'] = df_cuotas['Valor Esperado'].apply(definir_color)
 
-        # Obtener la mejor apuesta con mayor valor esperado
-        df_cuotas = df_cuotas.dropna(subset=['Valor Esperado'])  # Eliminar filas sin valor esperado
+        # Guardar en el diccionario de tablas por mercado
+        for mercado in df_cuotas['Mercado'].unique():
+            df_filtrado = df_cuotas[df_cuotas['Mercado'] == mercado]
+            if mercado not in tablas_mercados:
+                tablas_mercados[mercado] = df_filtrado
+            else:
+                tablas_mercados[mercado] = pd.concat([tablas_mercados[mercado], df_filtrado])
 
-        if not df_cuotas.empty:
-            mejor_apuesta = df_cuotas.loc[df_cuotas['Valor Esperado'].idxmax()]
-            
-            # Mostrar el pronóstico recomendado
-            st.markdown(f"### 🔮 **Pronóstico Recomendado**")
-            st.markdown(f"📌 **Tipo de Apuesta:** {mejor_apuesta['Mercado']}")  
-            st.markdown(f"💵 **Cuota:** {mejor_apuesta['Cuota']}")  
-            st.markdown(f"📈 **Valor Esperado:** {mejor_apuesta['Valor Esperado']:.2f}%")  
-            st.markdown(f"⚠️ **Riesgo:** {definir_color(mejor_apuesta['Valor Esperado'])}")  
-
-            # Mostrar tabla con cuotas filtrables
-            st.write("📊 **Cuotas disponibles:**")
-            st.dataframe(df_cuotas[['Casa', 'Mercado', 'Cuota', 'Valor Esperado', 'Riesgo']])
-
+# Mostrar cada tabla por mercado
+for mercado, tabla in tablas_mercados.items():
+    st.markdown(f"## 📊 Tabla de Apuestas: {mercado}")
+    st.dataframe(tabla[['Liga', 'Equipo Local', 'Equipo Visitante', 'Hora Local', 'Casa de Apuestas', 'Mercado', 'Apuesta Recomendada', 'Cuota', 'Valor Esperado', 'Riesgo']])
