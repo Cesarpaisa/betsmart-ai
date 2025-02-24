@@ -73,20 +73,15 @@ else:
             st.warning("⚠️ No se encontraron cuotas para este partido.")
             continue  # Pasar al siguiente partido sin detener la ejecución
 
-        # Crear DataFrame con cuotas organizadas por tipo
-        df_cuotas = pd.DataFrame(cuotas)
+        # Filtrar cuotas que contienen 'odd'
+        cuotas_filtradas = [c for c in cuotas if 'odd' in c]
 
-        # Verificar si el DataFrame tiene datos
-        if df_cuotas.empty:
-            st.warning("⚠️ No se encontraron cuotas organizadas.")
+        if not cuotas_filtradas:
+            st.warning("⚠️ No hay cuotas con 'odd' disponibles para este partido.")
             continue
 
-        # Si hay datos pero no contienen 'odd', mostrar la tabla de todas formas
-        if 'odd' not in df_cuotas.columns:
-            st.warning("⚠️ No se encontraron cuotas válidas con 'odd'.")
-            st.write("📌 **Datos de cuotas recibidos:**")
-            st.dataframe(df_cuotas)  # Mostrar la tabla aunque falte 'odd'
-            continue  # Pasar al siguiente partido
+        # Crear DataFrame con cuotas organizadas por tipo
+        df_cuotas = pd.DataFrame(cuotas_filtradas)
 
         # Agregar cálculo de valor esperado a la tabla
         df_cuotas['Valor Esperado'] = df_cuotas['odd'].apply(lambda x: calcular_valor_esperado(0.60, x))
@@ -101,6 +96,13 @@ else:
                 return '🔴 Alto'
         
         df_cuotas['Riesgo'] = df_cuotas['Valor Esperado'].apply(definir_color)
+
+        # Obtener la mejor apuesta con mayor valor esperado
+        mejor_apuesta = df_cuotas.loc[df_cuotas['Valor Esperado'].idxmax()]
+
+        # Mostrar el pronóstico recomendado
+        st.markdown(f"**🔮 Pronóstico Recomendado:** {mejor_apuesta['market']} - Cuota: {mejor_apuesta['odd']} - Valor Esperado: {mejor_apuesta['Valor Esperado']:.2f}%")
+        st.markdown(f"<span style='color:{definir_color(mejor_apuesta['Valor Esperado'])}'>⚠️ Riesgo: {'Bajo' if definir_color(mejor_apuesta['Valor Esperado'])=='🟢 Bajo' else 'Moderado' if definir_color(mejor_apuesta['Valor Esperado'])=='🟡 Moderado' else 'Alto'}</span>", unsafe_allow_html=True)
 
         # Mostrar tabla con cuotas filtrables
         st.write("📊 **Cuotas disponibles:**")
