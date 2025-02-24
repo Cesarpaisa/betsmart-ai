@@ -15,21 +15,34 @@ def obtener_partidos():
     url = API_URL + "fixtures"
     params = {"date": datetime.now().strftime('%Y-%m-%d')}
     response = requests.get(url, headers=HEADERS, params=params)
+    
+    if response.status_code != 200:
+        st.error(f"⚠️ Error en la API de partidos: {response.json()}")
+        return []
+    
     data = response.json()
-    return data['response']
+    return data.get('response', [])
 
 # Obtener cuotas de apuestas
 def obtener_cuotas(partido_id):
     url = API_URL + "odds"
     params = {"fixture": partido_id, "bookmaker": 1}  # Bet365
     response = requests.get(url, headers=HEADERS, params=params)
+    
+    if response.status_code != 200:
+        st.error(f"⚠️ Error en la API de cuotas: {response.json()}")
+        return []
+    
     data = response.json()
-    return data['response']
+    return data.get('response', [])
 
 # Calcular valor esperado de una apuesta
 def calcular_valor_esperado(probabilidad_real, cuota):
-    probabilidad_casa = 1 / cuota
-    return (probabilidad_real - probabilidad_casa) * 100
+    try:
+        probabilidad_casa = 1 / float(cuota)
+        return (probabilidad_real - probabilidad_casa) * 100
+    except ValueError:
+        return None
 
 # Convertir la hora del partido a la zona horaria local
 def convertir_hora(hora_utc, zona_usuario='America/Bogota'):
@@ -43,6 +56,7 @@ st.sidebar.header("📅 Configuración")
 
 # Obtener partidos
 partidos = obtener_partidos()
+
 if not partidos:
     st.write("No hay partidos disponibles hoy.")
 else:
@@ -53,31 +67,37 @@ else:
         st.subheader(f"{equipo_local} vs {equipo_visitante} - 🕒 {hora_partido}")
         
         cuotas = obtener_cuotas(partido['fixture']['id'])
-        if cuotas:
-            # Verificar si la API devolvió cuotas
-if not cuotas:
-    st.error("⚠️ No se encontraron cuotas para este partido.")
-    st.stop()  # Detiene la ejecución del programa
+        
+        # Verificar si la API devolvió cuotas
+        if not cuotas:
+            st.error("⚠️ No se encontraron cuotas para este partido.")
+            continue  # Pasar al siguiente partido sin detener la ejecución
 
-# Verificar si 'odd' está presente en los datos
-if isinstance(cuotas, list) and len(cuotas) > 0:
-    if 'odd' not in cuotas[0]:
-        st.error("⚠️ Error: La clave 'odd' no está en los datos de cuotas.")
-        st.write("📌 Datos devueltos por la API:", cuotas)  # Mostrar los datos para ver qué trae la API
-        st.stop()
-else:
-    st.error("⚠️ No se recibieron datos de cuotas en el formato esperado.")
-    st.stop()
+        # Filtrar solo las cuotas que contienen la clave 'odd'
+        cuotas_filtradas = [c for c in cuotas if 'odd' in c]
 
-# Obtener la mejor cuota si los datos son válidos
-# Obtener la mejor cuota si los datos son válidos
-mejor_cuota = max(cuotas, key=lambda x: x['odd'])
-            valor_esperado = calcular_valor_esperado(0.60, float(mejor_cuota['odd']))
-            color = "green" if valor_esperado > 5 else "yellow" if valor_esperado > 0 else "red"
-            st.markdown(f"**📊 Cuota: {mejor_cuota['odd']} - Valor Esperado: {valor_esperado:.2f}%**", unsafe_allow_html=True)
-            st.markdown(f"<span style='color:{color}'>⚠️ Riesgo: {'Bajo' if color=='green' else 'Moderado' if color=='yellow' else 'Alto'}</span>", unsafe_allow_html=True)
-        else:
-            st.write("No se encontraron cuotas para este partido.")
+        # Verificar que haya cuotas válidas
+        if not cuotas_filtradas:
+            st.error("⚠️ No se encontraron cuotas válidas con 'odd'.")
+            st.write("📌 Datos de cuotas recibidos:", cuotas)
+            continue  # Pasar al siguiente partido sin detener la ejecución
+
+        # Obtener la mejor cuota
+        mejor_cuota = max(cuotas_filtradas, key=lambda x: x['odd'])
+
+        # Calcular el valor esperado
+        valor_esperado = calcular_valor_esperado(0.60, mejor_cuota['odd'])
+        
+        if valor_esperado is None:
+            st.error("⚠️ Error al calcular el valor esperado: Cuota inválida.")
+            continue  # Pasar al siguiente partido
+
+        # Determinar el color de la apuesta según el valor esperado
+        color = "green" if valor_esperado > 5 else "yellow" if valor_esperado > 0 else "red"
+
+        # Mostrar resultados en Streamlit
+        st.markdown(f"**📊 Cuota: {mejor_cuota['odd']} - Valor Esperado: {valor_esperado:.2f}%**", unsafe_allow_html=True)
+        st.markdown(f"<span style='color:{color}'>⚠️ Riesgo: {'Bajo' if color=='green' else 'Moderado' if color=='yellow' else 'Alto'}</span>", unsafe_allow_html=True)
 
 # Simulador de Bankroll
 st.sidebar.subheader("💰 Calculadora de Bankroll")
