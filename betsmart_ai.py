@@ -82,22 +82,31 @@ else:
             st.write("📌 Datos de cuotas recibidos:", cuotas)
             continue  # Pasar al siguiente partido sin detener la ejecución
 
-        # Obtener la mejor cuota
-        mejor_cuota = max(cuotas_filtradas, key=lambda x: x['odd'])
+        # Crear DataFrame con cuotas organizadas por tipo
+        df_cuotas = pd.DataFrame(cuotas_filtradas)
 
-        # Calcular el valor esperado
-        valor_esperado = calcular_valor_esperado(0.60, mejor_cuota['odd'])
+        # Verificar si el DataFrame tiene datos
+        if df_cuotas.empty:
+            st.error("⚠️ No se encontraron cuotas organizadas.")
+            continue
+
+        # Agregar cálculo de valor esperado a la tabla
+        df_cuotas['Valor Esperado'] = df_cuotas['odd'].apply(lambda x: calcular_valor_esperado(0.60, x))
+
+        # Definir color según el valor esperado
+        def definir_color(valor):
+            if valor > 5:
+                return '🟢 Bajo'
+            elif valor > 0:
+                return '🟡 Moderado'
+            else:
+                return '🔴 Alto'
         
-        if valor_esperado is None:
-            st.error("⚠️ Error al calcular el valor esperado: Cuota inválida.")
-            continue  # Pasar al siguiente partido
+        df_cuotas['Riesgo'] = df_cuotas['Valor Esperado'].apply(definir_color)
 
-        # Determinar el color de la apuesta según el valor esperado
-        color = "green" if valor_esperado > 5 else "yellow" if valor_esperado > 0 else "red"
-
-        # Mostrar resultados en Streamlit
-        st.markdown(f"**📊 Cuota: {mejor_cuota['odd']} - Valor Esperado: {valor_esperado:.2f}%**", unsafe_allow_html=True)
-        st.markdown(f"<span style='color:{color}'>⚠️ Riesgo: {'Bajo' if color=='green' else 'Moderado' if color=='yellow' else 'Alto'}</span>", unsafe_allow_html=True)
+        # Mostrar tabla con cuotas filtrables
+        st.write("📊 **Cuotas disponibles:**")
+        st.dataframe(df_cuotas[['bookmaker', 'market', 'odd', 'Valor Esperado', 'Riesgo']])
 
 # Simulador de Bankroll
 st.sidebar.subheader("💰 Calculadora de Bankroll")
