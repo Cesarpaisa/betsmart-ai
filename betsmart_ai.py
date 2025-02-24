@@ -37,7 +37,6 @@ def obtener_cuotas(partido_id):
     response = requests.get(url, headers=HEADERS, params=params)
 
     if response.status_code != 200:
-        st.error(f"⚠️ Error en la API de cuotas: {response.json()}")
         return []
 
     data = response.json()
@@ -77,12 +76,11 @@ else:
         
         cuotas = obtener_cuotas(partido['fixture']['id'])
 
-        # Verificar si la API devolvió cuotas
-        if not cuotas:
+        # Verificar si hay cuotas disponibles
+        if not cuotas or 'bookmakers' not in cuotas[0]:
             st.warning(f"⚠️ No se encontraron cuotas para {equipo_local} vs {equipo_visitante}.")
             continue
 
-        # Extraer solo las cuotas relevantes
         cuotas_filtradas = []
         for cuota_data in cuotas:
             if 'bookmakers' in cuota_data:
@@ -92,7 +90,7 @@ else:
                         mercado_esp = TRADUCCION_MERCADOS.get(mercado, mercado)  # Traducción al español
 
                         for value in bet.get('values', []):
-                            if 'odd' in value:
+                            if 'odd' in value and 'value' in value:
                                 cuotas_filtradas.append({
                                     "Liga": liga,
                                     "Equipo Local": equipo_local,
@@ -100,10 +98,11 @@ else:
                                     "Hora Local": hora_partido,
                                     "Casa de Apuestas": bookmaker['name'],
                                     "Mercado": mercado_esp,
-                                    "Apuesta Recomendada": value['value'],  # Nombre de la apuesta específica
+                                    "Apuesta Recomendada": value['value'],  
                                     "Cuota": float(value['odd'])
                                 })
 
+        # Si después de filtrar no quedan cuotas, se omite
         if not cuotas_filtradas:
             st.warning(f"⚠️ No hay cuotas válidas para {equipo_local} vs {equipo_visitante}.")
             continue
