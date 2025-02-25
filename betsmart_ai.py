@@ -2,9 +2,184 @@ import streamlit as st
 import pandas as pd
 import requests
 import datetime
-from streamlit_autorefresh import st_autorefresh  # pip install streamlit-autorefresh
+from streamlit_autorefresh import st_autorefresh
 
-# Título de la aplicación
+# ============================================
+# CONFIGURACIÓN: Reemplaza con tu API key real
+# ============================================
+API_KEY = "49b84126cfmshd16c7cb8e40fca8p1244edjsn78a3b1832e7b"  # <-- Reemplaza con tu clave de RapidAPI
+API_HOST = "api-football-v1.p.rapidapi.com"
+HEADERS = {
+    "X-RapidAPI-Key": API_KEY,
+    "X-RapidAPI-Host": API_HOST
+}
+
+# ============================================
+# Funciones de consulta a la API-Football
+# ============================================
+
+def fetch_fixtures():
+    """Obtiene los partidos del día (fixtures) de la API."""
+    st.session_state.query_count += 1
+    today = datetime.date.today().isoformat()
+    url = f"https://{API_HOST}/v3/fixtures"
+    params = {"date": today}
+    response = requests.get(url, headers=HEADERS, params=params)
+    data = response.json()
+    # Retorna la lista de fixtures
+    return data.get("response", [])
+
+def fetch_odds(fixture_id):
+    """Obtiene las cuotas para un partido dado (fixture_id) de la API."""
+    st.session_state.query_count += 1
+    url = f"https://{API_HOST}/v3/odds"
+    # IDs de las casas de apuestas (según la documentación de API-Football):
+    # Bet365: 1, William Hill: 8, Pinnacle: 11, Betfair Exchange: 23
+    params = {
+        "fixture": fixture_id,
+        "bookmakers": "1,8,11,23"
+    }
+    response = requests.get(url, headers=HEADERS, params=params)
+    data = response.json()
+    return data.get("response", [])
+
+# ============================================
+# Funciones para extraer y procesar mercados
+# ============================================
+
+def extract_market_info(odds_item, market_key):
+    """
+    Extrae la mejor cuota, el resultado (recomendación) y la casa de apuestas
+    para un mercado dado a partir del objeto de odds.
+    
+    market_key puede ser:
+      - "Value Betting": usamos el mercado "1X2"
+      - "Doble Oportunidad": se busca el bet con "Double Chance" o "Doble Oportunidad"
+      - "Asian Handicap": se busca el bet "ah"
+      - "Over/Under": se busca el bet "ou"
+    """
+    best_odd = None
+    best_outcome = None
+    best_bookmaker = None
+
+    # Itera por cada casa de apuestas en el fixture de odds
+    for bookmaker in odds_item.get("bookmakers", []):
+        # Considera solo las casas indicadas
+        if bookmaker["name"] not in ["Bet365", "William Hill", "Pinnacle", "Betfair Exchange"]:
+            continue
+        for bet in bookmaker.get("bets", []):
+            if market_key == "Doble Oportunidad":
+                if "Double Chance" in bet["name"] or "Doble Oportunidad" in bet["name"]:
+                    for value in bet.get("values", []):
+                        odd = float(value["odd"])
+                        if best_odd is None or odd > best_odd:
+                            best_odd = odd
+                            best_outcome = value["value"]
+                            best_bookmaker = bookmaker["name"]
+            elif market_key == "Value Betting":
+                # Usamos el mercado 1X2 para Value Betting
+                if bet["id"].lower() == "1x2":
+                    for value in bet.get("values", []):
+                        odd = float(value["odd"])
+                        if best_odd is None or odd > best_odd:
+                            best_odd = odd
+                            best_outcome = value["value"]
+                            best_bookmaker = bookmaker["name"]
+            elif market_key == "Asian Handicap":
+                if bet["id"].lower() == "ah":
+                    for value in bet.get("values", []):
+                        odd = float(value["odd"])
+                        if best_odd is None or odd > best_odd:
+                            best_odd = odd
+                            best_outcome = value["value"]
+                            best_bookmaker = bookmaker["name"]
+            elif market_key == "Over/Under":
+                if bet["id"].lower() == "ou":
+                    for value in bet.get("values", []):
+                        odd = float(value["odd"])
+                        if best_odd is None or odd > best_odd:
+                            best_odd = odd
+                            best_outcome = value["value"]
+                            best_bookmaker = bookmaker["name"]
+    return best_odd, best_outcome, best_bookmaker
+
+def calculate_probabilities(odd):
+    """Calcula la probabilidad implícita, simula una probabilidad real y el valor esperado."""
+    # Probabilidad implícita (%)
+    prob_cuota = round((1 / odd) * 100, 2)
+    # Simulación: se asume que la probabilidad real es la implícita más un ajuste (por ejemplo, +15 puntos)
+    prob_real = prob_cuota + 15
+    if prob_real > 100:
+        prob_real = 100
+    # Valor esperado (%) = diferencia entre probabilidad real y probabilidad implícita
+    valor_esperado = round(prob_real - prob_cuota, 2)
+    return prob_cuota, prob_real, valor_esperado
+
+def classify_risk(prob_real, valor_esperado):
+    """Clasifica el riesgo basado en la probabilidad real y el valor esperado."""
+    if prob_real > 65 and valor_esperado > 0:
+        return "🟢"
+    elif 50 <= prob_real <= 65:
+        return "🟡"
+    else:
+        return "🔴"
+
+# ============================================
+# Función principal para obtener y procesar datos
+# ============================================
+@st.cache_data(ttl=8*3600)
+def fetch_api_data():
+    fixtures = fetch_fixtures()
+    matches_list = []
+    
+    # Se definen los mercados a analizar
+    mercados = ["Value Betting", "Doble Oportunidad", "Asian Handicap", "Over/Under"]
+    
+    for fixture in fixtures:
+        fixture_id = fixture["fixture"]["id"]
+        # Datos básicos del fixture
+        league = fixture["league"]["name"]
+        home_team = fixture["teams"]["home"]["name"]
+        away_team = fixture["teams"]["away"]["name"]
+        fixture_time = fixture["fixture"]["date"]
+        
+        # Obtiene las cuotas para este fixture
+        odds_response = fetch_odds(fixture_id)
+        # Si no hay odds disponibles, se omite este fixture
+        if not odds_response:
+            continue
+        # En la respuesta de odds, generalmente se devuelve una lista con un elemento por fixture
+        odds_item = odds_response[0]
+        
+        # Para cada mercado, extrae la mejor cuota disponible y procesa la información
+        for mercado in mercados:
+            best_odd, best_outcome, best_bookmaker = extract_market_info(odds_item, mercado)
+            if best_odd is None:
+                continue  # Si no hay cuota para ese mercado, se salta
+            prob_cuota, prob_real, valor_esperado = calculate_probabilities(best_odd)
+            risk = classify_risk(prob_real, valor_esperado)
+            
+            matches_list.append({
+                "Liga": league,
+                "Local": home_team,
+                "Visitante": away_team,
+                "Hora (Local)": fixture_time,
+                "Casa de Apuestas": best_bookmaker,
+                "Mercado": mercado,
+                "Recomendación": best_outcome,
+                "Mejor Cuota": best_odd,
+                "Valor Esperado (%)": valor_esperado,
+                "Probabilidad Real (%)": prob_real,
+                "Probabilidad de la Cuota (%)": prob_cuota,
+                "Riesgo": risk
+            })
+    return {"matches": matches_list}
+
+# ============================================
+# Configuración de la interfaz Streamlit
+# ============================================
+
+st.set_page_config(page_title="BetSmart AI", layout="wide")
 st.title("BetSmart AI: Predicción de Apuestas Deportivas")
 
 # Inicialización de variables en session_state
@@ -13,147 +188,67 @@ if "query_count" not in st.session_state:
 if "last_update" not in st.session_state:
     st.session_state.last_update = datetime.datetime.now()
 
-# Función para simular la consulta a la API‑Football.
-# En producción, reemplaza este bloque por una llamada real a la API utilizando requests.
-@st.cache_data(ttl=8*3600)
-def fetch_api_data():
-    # Incrementa el contador de consultas cada vez que se realiza una llamada real a la API
-    st.session_state.query_count += 1
-
-    # Ejemplo de llamada real (descomentar y configurar):
-    # url = "https://api-football-v1.p.rapidapi.com/v3/fixtures"
-    # headers = {
-    #     "X-RapidAPI-Key": "49b84126cfmshd16c7cb8e40fca8p1244edjsn78a3b1832e7b",
-    #     "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"
-    # }
-    # response = requests.get(url, headers=headers)
-    # data = response.json()
-    # return data
-
-    # Datos simulados para 4 mercados y comparación de cuotas entre distintas casas (Bet365, William Hill, Pinnacle, Betfair Exchange)
-    matches = [
-        {
-            "Liga": "Premier League",
-            "Local": "Liverpool",
-            "Visitante": "Manchester City",
-            "Hora (Local)": "15:00",
-            "Casa de Apuestas": "Pinnacle",
-            "Mercado": "Doble Oportunidad (1X)",
-            "Recomendación": "Liverpool o Empate",
-            "Mejor Cuota": 1.90,
-            "Valor Esperado (%)": 12,
-            "Probabilidad Real (%)": 72,
-            "Probabilidad de la Cuota (%)": 58,
-            "Riesgo": "🟢"  # Alta probabilidad (>65%) y +EV
-        },
-        {
-            "Liga": "La Liga",
-            "Local": "Real Madrid",
-            "Visitante": "Barcelona",
-            "Hora (Local)": "20:00",
-            "Casa de Apuestas": "Bet365",
-            "Mercado": "Value Betting",
-            "Recomendación": "Real Madrid",
-            "Mejor Cuota": 2.00,
-            "Valor Esperado (%)": 25,
-            "Probabilidad Real (%)": 68,
-            "Probabilidad de la Cuota (%)": 60,
-            "Riesgo": "🟢"  # Alta probabilidad (>65%) y +EV
-        },
-        {
-            "Liga": "Serie A",
-            "Local": "Juventus",
-            "Visitante": "Inter",
-            "Hora (Local)": "18:30",
-            "Casa de Apuestas": "William Hill",
-            "Mercado": "Asian Handicap",
-            "Recomendación": "Juventus -0.25",
-            "Mejor Cuota": 1.95,
-            "Valor Esperado (%)": 8,
-            "Probabilidad Real (%)": 60,
-            "Probabilidad de la Cuota (%)": 55,
-            "Riesgo": "🟡"  # Probabilidad media (50%-65%) y riesgo moderado
-        },
-        {
-            "Liga": "Bundesliga",
-            "Local": "Bayern",
-            "Visitante": "Dortmund",
-            "Hora (Local)": "16:00",
-            "Casa de Apuestas": "Betfair Exchange",
-            "Mercado": "Over/Under (Más/Menos Goles)",
-            "Recomendación": "Over 2.5",
-            "Mejor Cuota": 1.85,
-            "Valor Esperado (%)": -5,
-            "Probabilidad Real (%)": 48,
-            "Probabilidad de la Cuota (%)": 52,
-            "Riesgo": "🔴"  # Probabilidad baja (<50%) y riesgo alto
-        }
-    ]
-    return {"matches": matches}
-
-# Configuración de refresco automático para actualizar el temporizador cada segundo
+# Refresco automático cada segundo para actualizar el temporizador
 st_autorefresh(interval=1000, key="timer_refresh")
 
-# Cálculo del tiempo restante para el reinicio de la API (caché de 8 horas)
+# Cálculo del tiempo restante para la reactivación de la API (caché de 8 horas)
 time_elapsed = datetime.datetime.now() - st.session_state.last_update
 time_reset = datetime.timedelta(hours=8)
 remaining_time = time_reset - time_elapsed
 if remaining_time.total_seconds() < 0:
     remaining_time = datetime.timedelta(seconds=0)
 
-# Mostrar temporizador y contador de consultas en la barra lateral
+# Mostrar información en la barra lateral
 st.sidebar.markdown("### ⏳ Tiempo restante para restablecimiento de la API:")
 st.sidebar.write(str(remaining_time).split(".")[0])
 st.sidebar.markdown("### 🔎 Consultas realizadas:")
 st.sidebar.write(st.session_state.query_count)
 
-# Botón de actualización manual: limpia la caché, reinicia el temporizador y refresca la página
+# Botón de actualización manual: limpia la caché, reinicia el temporizador y recarga la aplicación
 if st.sidebar.button("Actualizar Datos"):
     st.cache_data.clear()
     st.session_state.last_update = datetime.datetime.now()
     st.experimental_rerun()
 
-# Obtención de los datos (con caché de 8 horas)
+# Obtención de datos (con caché de 8 horas)
 data = fetch_api_data()
 
-# Conversión de los datos a DataFrame para mostrar la consulta general de partidos y cuotas
-st.header("Consulta en Tiempo Real de Partidos y Cuotas de Apuestas")
-df_matches = pd.DataFrame(data["matches"])
-st.dataframe(df_matches)
+# Si no se obtuvieron partidos (por ejemplo, si la API no devolvió resultados)
+if not data["matches"]:
+    st.error("No se han encontrado partidos u odds para el día de hoy.")
+else:
+    # Conversión de los datos a DataFrame y despliegue de la tabla general
+    st.header("Consulta en Tiempo Real de Partidos y Cuotas de Apuestas")
+    df_matches = pd.DataFrame(data["matches"])
+    st.dataframe(df_matches, use_container_width=True)
 
-# Función auxiliar para mostrar cada mercado en una tabla filtrable
-def mostrar_mercado(nombre_mercado, filtro_exacto=True):
-    st.subheader(f"Mercado: {nombre_mercado}")
-    if filtro_exacto:
+    # Función auxiliar para mostrar cada mercado en una tabla filtrable
+    def mostrar_mercado(nombre_mercado):
+        st.subheader(f"Mercado: {nombre_mercado}")
         df_filtrado = df_matches[df_matches["Mercado"] == nombre_mercado]
-    else:
-        # Permite incluir variantes del nombre, por ejemplo "Doble Oportunidad (1X)" o "Doble Oportunidad (X2)"
-        df_filtrado = df_matches[df_matches["Mercado"].str.contains(nombre_mercado, case=False)]
-    if df_filtrado.empty:
-        st.info(f"No hay datos para {nombre_mercado} (se muestran datos de ejemplo).")
-    else:
-        st.dataframe(df_filtrado)
+        if df_filtrado.empty:
+            st.info(f"No hay datos para el mercado '{nombre_mercado}'.")
+        else:
+            st.dataframe(df_filtrado, use_container_width=True)
 
-# Mostrar tablas por cada uno de los 4 mercados
-# 1. Value Betting
-mostrar_mercado("Value Betting")
-# 2. Doble Oportunidad (se busca de forma parcial para incluir variantes)
-mostrar_mercado("Doble Oportunidad", filtro_exacto=False)
-# 3. Asian Handicap
-mostrar_mercado("Asian Handicap")
-# 4. Over/Under (Más/Menos Goles)
-mostrar_mercado("Over/Under (Más/Menos Goles)")
+    # Mostrar tablas para cada uno de los 4 mercados
+    mostrar_mercado("Value Betting")
+    mostrar_mercado("Doble Oportunidad")
+    mostrar_mercado("Asian Handicap")
+    mostrar_mercado("Over/Under")
 
-# Sistema de Alertas Automáticas: alerta si se detecta un Valor Esperado elevado (por ejemplo, >20%)
-alertas = df_matches[df_matches["Valor Esperado (%)"] > 20]
-if not alertas.empty:
-    for index, row in alertas.iterrows():
-        st.warning(
-            f"📢 Alerta: Se ha detectado una apuesta con +{row['Valor Esperado (%)']}% de Valor Esperado en "
-            f"{row['Liga']} ({row['Local']} vs {row['Visitante']})."
-        )
+    # Sistema de alertas automáticas: alerta si se detecta una apuesta con Valor Esperado elevado (por ejemplo, >20%)
+    alertas = df_matches[df_matches["Valor Esperado (%)"] > 20]
+    if not alertas.empty:
+        for index, row in alertas.iterrows():
+            st.warning(
+                f"📢 Alerta: Se ha detectado una apuesta con +{row['Valor Esperado (%)']}% de Valor Esperado en "
+                f"{row['Liga']} ({row['Local']} vs {row['Visitante']})."
+            )
 
-# Sección explicativa para el usuario
+# ============================================
+# Sección informativa para el usuario
+# ============================================
 st.markdown("---")
 st.subheader("ℹ️ Cómo usar BetSmart AI")
 st.markdown("""
@@ -178,5 +273,5 @@ El código está preparado para la integración de modelos de **Machine Learning
 - Redes Neuronales para la predicción de goles esperados.
 - Random Forest para evaluar patrones y detectar apuestas rentables.
 
-Esta integración permitirá mejorar la precisión de las predicciones y, por ende, optimizar tus apuestas.
+Esta integración permitirá mejorar la precisión de las predicciones y optimizar tus apuestas.
 """)
