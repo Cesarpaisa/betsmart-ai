@@ -1,11 +1,9 @@
 import streamlit as st
 import requests
-import time
-import pandas as pd
 import datetime
-from datetime import timedelta
+import pandas as pd
 import pytz
-import json
+from datetime import timedelta
 
 # Configuración de API
 API_KEY = "49b84126cfmshd16c7cb8e40fca8p1244edjsn78a3b1832e7b"
@@ -26,8 +24,8 @@ def obtener_partidos():
     params = {"date": datetime.datetime.utcnow().strftime('%Y-%m-%d')}
     response = requests.get(url, headers=HEADERS, params=params)
     if response.status_code == 200:
-        return response.json()['response']
-    return None
+        return response.json().get('response', [])
+    return []
 
 # Función para obtener cuotas
 @st.cache_data(ttl=28800)
@@ -36,8 +34,8 @@ def obtener_cuotas(partido_id):
     params = {"fixture": partido_id, "bookmaker": 1}  # Bet365
     response = requests.get(url, headers=HEADERS, params=params)
     if response.status_code == 200:
-        return response.json()['response']
-    return None
+        return response.json().get('response', [])
+    return []
 
 # Función para convertir hora a zona local
 def convertir_hora(hora_utc, zona_usuario='America/Bogota'):
@@ -62,20 +60,36 @@ partidos = obtener_partidos()
 if not partidos:
     st.error("⚠️ No hay partidos disponibles hoy o la API ha alcanzado su límite de consultas.")
 else:
+    mercados = {"Ganador del Partido": [], "Más/Menos Goles": [], "Ambos Equipos Marcan": []}
+    
     for partido in partidos:
         equipo_local = partido['teams']['home']['name']
         equipo_visitante = partido['teams']['away']['name']
         liga = partido['league']['name']
         hora_partido = convertir_hora(partido['fixture']['date'])
+        partido_id = partido['fixture']['id']
         
-        st.subheader(f"{equipo_local} vs {equipo_visitante} - 🏆 {liga} - 🕒 {hora_partido}")
-        
-        cuotas = obtener_cuotas(partido['fixture']['id'])
+        cuotas = obtener_cuotas(partido_id)
         if cuotas:
-            df_cuotas = pd.DataFrame(cuotas)
-            st.dataframe(df_cuotas)
+            for cuota in cuotas:
+                mercado = cuota.get('market', '')
+                odd = cuota.get('odd', None)
+                
+                if mercado and odd:
+                    if "Match Winner" in mercado:
+                        mercados["Ganador del Partido"].append([liga, equipo_local, equipo_visitante, hora_partido, mercado, odd])
+                    elif "Over/Under" in mercado:
+                        mercados["Más/Menos Goles"].append([liga, equipo_local, equipo_visitante, hora_partido, mercado, odd])
+                    elif "Both Teams to Score" in mercado:
+                        mercados["Ambos Equipos Marcan"].append([liga, equipo_local, equipo_visitante, hora_partido, mercado, odd])
+    
+    for mercado, datos in mercados.items():
+        st.subheader(f"📊 Tabla de Apuestas: {mercado}")
+        if datos:
+            df = pd.DataFrame(datos, columns=["Liga", "Local", "Visitante", "Hora", "Mercado", "Cuota"])
+            st.dataframe(df)
         else:
-            st.warning(f"⚠️ No se encontraron cuotas para {equipo_local} vs {equipo_visitante}.")
+            st.warning(f"No hay datos disponibles para este mercado.")
 
 # Información sobre cómo usar la herramienta
 st.markdown("""
