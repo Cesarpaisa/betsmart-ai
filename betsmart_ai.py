@@ -5,7 +5,7 @@ import pytz
 from datetime import datetime
 
 # Configuración de la API
-API_KEY = "TU_CLAVE_DE_API"
+API_KEY = "49b84126cfmshd16c7cb8e40fca8p1244edjsn78a3b1832e7b"
 API_URL = "https://api-football-v1.p.rapidapi.com/v3/"
 HEADERS = {
     "x-rapidapi-key": API_KEY,
